@@ -1,0 +1,2114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fuel Route Planner V2</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel2: #1f2937;
+      --line: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --good: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --blue: #2563eb;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif; background: var(--bg); color: var(--text); }
+    .app { display: grid; grid-template-columns: 390px 1fr 420px; min-height: 100vh; }
+    .panel { background: var(--panel); border-right: 1px solid var(--line); padding: 16px; overflow: auto; }
+    .panel.right { border-right: none; border-left: 1px solid var(--line); }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin: 18px 0 10px; }
+    .small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .row { margin-bottom: 10px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input, textarea, select, button { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 10px 12px; font-size: 14px; }
+    textarea { min-height: 70px; resize: vertical; }
+    button { border: none; cursor: pointer; background: linear-gradient(180deg, #0ea5e9, #0284c7); font-weight: 700; }
+    button.secondary { background: var(--panel2); border: 1px solid var(--line); font-weight: 500; }
+    button.warn { background: linear-gradient(180deg, #f59e0b, #d97706); }
+    .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .button-row.triple { grid-template-columns: 1fr 1fr 1fr; }
+    .card { background: #0b1220; border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+    .metric { display: flex; justify-content: space-between; gap: 14px; padding: 7px 0; border-bottom: 1px solid rgba(148,163,184,0.14); font-size: 13px; }
+    .metric:last-child { border-bottom: none; }
+    .value { font-weight: 700; text-align: right; }
+    .good { color: var(--good); }
+    .warn-text { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .map-wrap { position: relative; }
+    #map { width: 100%; height: 100vh; background: #020617; }
+    .status, .legend {
+      position: absolute; z-index: 1000; background: rgba(15,23,42,0.93); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+      font-size: 12px; line-height: 1.45;
+    }
+    .status { left: 12px; top: 12px; max-width: 520px; }
+    .legend { right: 12px; bottom: 12px; }
+    .legend div { margin-bottom: 4px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; border: 1px solid #0c4a6e; background: #082f49; color: #bae6fd; font-size: 12px; margin: 0 6px 6px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border-bottom: 1px solid rgba(148,163,184,0.14); padding: 7px 6px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: #0b1220; }
+    .debug-list { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+    .debug-list .metric { padding: 6px 10px; }
+    .collapsible summary { cursor: pointer; color: var(--accent); font-weight: 700; margin-bottom: 10px; }
+    .leaflet-tooltip.pump-tooltip, .leaflet-tooltip.recommend-tooltip {
+      background: rgba(255,255,255,0.98); color: #111827; border: 1px solid #cbd5e1; border-radius: 10px; padding: 8px 10px; box-shadow: 0 10px 24px rgba(15,23,42,0.18); line-height: 1.38; font-size: 13px;
+    }
+    .leaflet-tooltip.recommend-tooltip { border-color: var(--blue); }
+    .tt-title { color: var(--blue); font-weight: 800; margin-bottom: 4px; }
+    .tt-line { margin: 2px 0; }
+    .nowrap { white-space: nowrap; }
+
+    .autocomplete-wrap { position: relative; }
+    .autocomplete-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 2000;
+      display: none;
+      max-height: 240px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #0b1220;
+      box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55);
+    }
+    .autocomplete-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(148,163,184,0.12);
+      cursor: pointer;
+    }
+    .autocomplete-item:last-child { border-bottom: none; }
+    .autocomplete-item:hover, .autocomplete-item.active { background: #172033; }
+    .autocomplete-primary { color: var(--text); font-size: 14px; }
+    .autocomplete-secondary { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    #truckSelectRow { display: none; }
+
+    .source-note { margin-top: 8px; }
+    .source-help { margin-top: 10px; }
+    .hidden-row { display: none; }
+    .muted-box { background: #0b1220; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+    .viewer-modal {
+      position: fixed;
+      inset: 18px;
+      z-index: 5000;
+      display: none;
+      align-items: stretch;
+      justify-content: center;
+      background: rgba(2, 6, 23, 0.72);
+      backdrop-filter: blur(2px);
+    }
+    .viewer-card {
+      width: min(1240px, calc(100vw - 36px));
+      height: calc(100vh - 36px);
+      background: #08111f;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      overflow: hidden;
+      box-shadow: 0 20px 48px rgba(2, 6, 23, 0.45);
+    }
+    .viewer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(148,163,184,0.16);
+    }
+    .viewer-sub {
+      padding: 0 16px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      border-bottom: 1px solid rgba(148,163,184,0.16);
+    }
+    .viewer-grid {
+      display: grid;
+      grid-template-columns: 390px 1fr;
+      min-height: 0;
+      height: 100%;
+    }
+    .viewer-table-wrap {
+      min-height: 0;
+      overflow: auto;
+      border-right: 1px solid rgba(148,163,184,0.16);
+      background: #0b1220;
+    }
+    #fuelViewerMap {
+      width: 100%;
+      height: 100%;
+      background: #020617;
+    }
+    .viewer-empty {
+      padding: 18px 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .helper-list { margin: 8px 0 0 18px; padding: 0; }
+    .helper-list li { margin: 4px 0; }
+
+  /* ===== PLAN SHORTCUT BUTTONS ===== */
+
+.plan-fab-map {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1700;
+  width: 100px;
+  height: 100px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #fdf2f8;
+  font-weight: 900;
+  font-size: 22px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #06b6d4, #8b5cf6, #ec4899, #22d3ee);
+  background-size: 280% 280%;
+  box-shadow:
+    0 14px 32px rgba(6, 182, 212, 0.28),
+    0 8px 18px rgba(139, 92, 246, 0.22),
+    inset 0 2px 10px rgba(255,255,255,0.18);
+  animation: planGradientShift 8s ease infinite, planPulseGlow 2.6s ease-in-out infinite;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  visibility: hidden;
+}
+
+.plan-fab-map::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 25%, rgba(255,255,255,0.35), rgba(255,255,255,0.06) 42%, transparent 60%);
+  pointer-events: none;
+}
+
+.plan-fab-map span {
+  position: relative;
+  z-index: 2;
+  text-shadow:
+    0 2px 8px rgba(0,0,0,0.28),
+    0 0 18px rgba(255,255,255,0.18);
+}
+
+.plan-fab-map:hover {
+  transform: translateY(-4px) scale(1.04);
+  filter: saturate(1.12) brightness(1.05);
+  box-shadow:
+    0 18px 40px rgba(6, 182, 212, 0.34),
+    0 10px 24px rgba(236, 72, 153, 0.26),
+    inset 0 2px 12px rgba(255,255,255,0.22);
+}
+
+.plan-fab-map:active {
+  transform: translateY(-1px) scale(0.98);
+}
+
+.plan-results-sticky {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1700;
+  width: 320px;
+  padding: 0;
+  background: transparent;
+  visibility: hidden;
+}
+
+.plan-results-btn {
+  width: 100%;
+  border: none;
+  border-radius: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff7ed;
+  background: linear-gradient(135deg, #f59e0b, #ef4444, #f97316, #fb7185);
+  background-size: 260% 260%;
+  box-shadow:
+    0 10px 22px rgba(239, 68, 68, 0.22),
+    inset 0 1px 8px rgba(255,255,255,0.18);
+  animation: planGradientShift 7s ease infinite;
+  transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
+}
+
+.plan-results-btn:hover {
+  transform: translateY(-2px);
+  filter: saturate(1.08) brightness(1.04);
+  box-shadow:
+    0 14px 28px rgba(249, 115, 22, 0.28),
+    inset 0 1px 10px rgba(255,255,255,0.22);
+}
+
+.plan-results-btn:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.panel.right {
+  padding-top: 84px;
+}
+
+@keyframes planGradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes planPulseGlow {
+  0%, 100% {
+    box-shadow:
+      0 14px 32px rgba(6, 182, 212, 0.28),
+      0 8px 18px rgba(139, 92, 246, 0.22),
+      inset 0 2px 10px rgba(255,255,255,0.18);
+  }
+  50% {
+    box-shadow:
+      0 20px 42px rgba(236, 72, 153, 0.34),
+      0 10px 22px rgba(34, 211, 238, 0.26),
+      inset 0 2px 12px rgba(255,255,255,0.22);
+  }
+}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="panel">
+    <h1>Fuel Route Planner V2</h1>
+    <div class="small">Live planner. Build a route, choose the planning mode, and load fuel pumps from master data, your own Google Sheet, or a CSV without turning dispatch into spreadsheet séances.</div>
+
+    <h2>Trip</h2>
+    <div class="row autocomplete-wrap">
+      <label for="truckSearch">Truck Search / Select</label>
+      <input id="truckSearch" placeholder="Type truck number/name, e.g. 190" autocomplete="off" />
+      <div id="truckSearchMenu" class="autocomplete-menu"></div>
+    </div>
+
+    <div class="row" id="truckSelectRow">
+      <label for="truckSelect">Live Samsara Truck</label>
+      <select id="truckSelect">
+        <option value="">Load trucks first</option>
+      </select>
+    </div>
+
+    <div class="button-row">
+      <button id="loadTrucksBtn" class="secondary">Load Trucks</button>
+      <button id="refreshTruckBtn" class="secondary">Refresh Location</button>
+    </div>
+
+    <div id="truckInfo" class="small" style="margin-bottom:10px;">
+      No truck loaded.
+    </div>
+
+    <div class="row autocomplete-wrap"><label for="origin">Origin</label><input id="origin" value="Amarillo, TX" autocomplete="off" /><div id="originMenu" class="autocomplete-menu"></div></div>
+    <div class="row autocomplete-wrap"><label for="destination">Destination</label><input id="destination" value="Durham, CA" autocomplete="off" /><div id="destinationMenu" class="autocomplete-menu"></div></div>
+    <div class="row autocomplete-wrap"><label for="waypoints">Waypoints (one per line, optional)</label><textarea id="waypoints" placeholder="Flagstaff, AZ&#10;Barstow, CA"></textarea><div id="waypointsMenu" class="autocomplete-menu"></div></div>
+    <div class="row"><label for="clickMode">Map Click Mode</label><select id="clickMode"><option value="none">None</option><option value="origin">Set Origin</option><option value="destination">Set Destination</option><option value="waypoint">Add Waypoint</option></select></div>
+    <div class="button-row"><button id="buildRouteBtn">Build Route</button><button id="clearWaypointsBtn" class="secondary">Clear Waypoints</button></div>
+
+    <h2>Planning Mode</h2>
+    <div class="row"><label for="planningMode">Planning Mode</label><select id="planningMode"><option value="strict">Strict Window Mode</option><option value="buffer">Plain Buffer Mode</option><option value="before_ca">Before Entering CA Mode</option></select></div>
+    <div class="small" style="margin-bottom:8px;">Before Entering CA Mode uses a fixed arrival-fuel window of <b>35 to 55 gallons</b> and suggests the <b>cheapest route-side stop before California</b>, not just Arizona. It also warns the driver: <b>Please fill fuel before entering California as fuel prices in CA are killing us.</b></div>
+    <div class="grid">
+      <div class="row"><label for="lowerOffset">Window Lower Offset</label><input id="lowerOffset" type="number" step="0.1" value="10" /></div>
+      <div class="row"><label for="upperOffset">Window Upper Offset</label><input id="upperOffset" type="number" step="0.1" value="5" /></div>
+      <div class="row"><label for="priorityMode">Priority Mode</label><select id="priorityMode"><option value="lowest_cost">Lowest Cost</option><option value="best_ending">Best Ending Fuel Match</option><option value="balanced">Balanced</option></select></div>
+      <div class="row"><label for="targetWeight">Target Weight</label><input id="targetWeight" type="number" step="0.1" value="1" /></div>
+    </div>
+
+    <h2>Rules</h2>
+    <div class="grid">
+      <div class="row"><label for="tankCapacity">Tank Capacity</label><input id="tankCapacity" type="number" value="240" /></div>
+      <div class="row"><label for="startingFuel">Starting Fuel</label><input id="startingFuel" type="number" value="150" /></div>
+      <div class="row"><label for="mpg">MPG</label><input id="mpg" type="number" step="0.1" value="6.5" /></div>
+      <div class="row"><label for="bufferFuel">Buffer Fuel</label><input id="bufferFuel" type="number" value="50" /></div>
+      <div class="row"><label for="endingFuel">Ending Fuel Target</label><input id="endingFuel" type="number" value="150" /></div>
+      <div class="row"><label for="maxStops">Max Stops</label><input id="maxStops" type="number" min="0" max="4" value="2" /></div>
+      <div class="row"><label for="corridorMiles">Route Corridor (miles)</label><input id="corridorMiles" type="number" step="0.1" value="10" /></div>
+    </div>
+    <div class="row"><label><input id="fullTankEachStop" type="checkbox" checked style="width:auto; margin-right:8px;" /> Full tank at each stop</label></div>
+    <div class="row"><label><input id="autoRescueStop" type="checkbox" checked style="width:auto; margin-right:8px;" /> Auto Rescue Stop</label></div>
+    <div class="row"><label><input id="rescueIgnoreWindow" type="checkbox" checked style="width:auto; margin-right:8px;" /> Rescue stop ignores refill window</label></div>
+
+    <h2>Fuel Data</h2>
+    <div class="row">
+      <label for="fuelDataMode">Fuel Data Source</label>
+      <select id="fuelDataMode">
+        <option value="default">Master (Default)</option>
+        <option value="google_sheet">Google Sheet</option>
+        <option value="csv">Upload CSV</option>
+      </select>
+    </div>
+    <div id="fuelDataModeHelp" class="small source-note">
+      <div><b>Master (Default)</b> uses the system fuel data.</div>
+      <div><b>Google Sheet</b> is best for regular users because changes persist after refresh.</div>
+      <div><b>Upload CSV</b> is quick and also stays after refresh on the same browser only.</div>
+    </div>
+
+    <div id="customSheetRow" class="row hidden-row">
+      <label for="customSheetUrl">Custom Google Sheet URL</label>
+      <input id="customSheetUrl" type="url" placeholder="Paste your Google Sheet link here" />
+    </div>
+
+    <div id="csvUploadRow" class="row hidden-row" style="margin-top: 10px;">
+      <label for="csvFile">Upload CSV</label>
+      <input id="csvFile" type="file" accept=".csv" />
+    </div>
+
+    <div class="button-row triple">
+      <button id="loadFuelDataBtn" class="secondary">Load Fuel Data</button>
+      <button id="useDefaultFuelBtn" class="secondary">Use Default Fuel Data</button>
+      <button id="viewFuelPumpsBtn" class="secondary">View Fuel Pumps</button>
+    </div>
+    <div class="button-row triple" style="margin-top:10px;">
+      <button id="downloadTemplateBtn" class="secondary">Download Template CSV</button>
+      <button id="downloadJsonBtn" class="secondary">Export JSON</button>
+      <button id="downloadCsvBtn" class="secondary">Export CSV</button>
+    </div>
+    <div class="button-row" style="margin-top:10px;">
+      <button id="planBtn" class="warn">Plan</button>
+      <div></div>
+    </div>
+
+    <div id="fuelDataInfo" class="small" style="margin-top: 12px;">Fuel data has not been loaded yet.</div>
+
+    <div class="card small source-help">
+      <div><b>Google Sheet setup</b></div>
+      <ul class="helper-list">
+        <li>Open your Google Sheet</li>
+        <li>Click <b>Share</b></li>
+        <li>Set <b>Anyone with the link</b> to <b>Viewer</b></li>
+        <li>Paste the full Google Sheet URL here</li>
+      </ul>
+      <div style="margin-top:10px;"><b>Template columns used by this tool</b></div>
+      <div class="mono">pump_name, price_per_gallon, latitude, longitude, city, state</div>
+      <div class="small" style="margin-top:8px;">This tool still accepts optional <span class="mono">location</span> and older fallback headers, but the downloadable template remains the clean standard.</div>
+    </div>
+    <div class="small" style="margin-top: 12px;">Your selected fuel source is remembered in local storage, because apparently the browser is now part of your dispatch team.</div>
+  </div>
+
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div class="status" id="status">Ready. Fuel data loads from your selected source and the route planner is standing by.</div>
+    <div class="legend">
+      <div><span style="color:#22c55e">●</span> origin / destination</div>
+      <div><span style="color:#f59e0b">●</span> waypoint</div>
+      <div><span style="color:#10b981">●</span> route-side candidate pump</div>
+      <div><span style="color:#2563eb">●</span> recommended stop</div>
+    </div>
+    <button id="planFabMap" class="plan-fab-map" type="button" aria-label="Plan now">
+  <span>PLAN</span>
+</button>
+  </div>
+
+  <div class="panel right">
+    <div class="plan-results-sticky">
+      <button id="planStickyTop" class="plan-results-btn" type="button">PLAN</button>
+    </div>
+    <h1>Results</h1>
+    <div id="summary" class="card small">No plan yet.</div>
+    <div id="planReason" class="card small">Planner will explain itself here instead of acting mysterious.</div>
+    <div id="planTable" class="card small"></div>
+    <details class="collapsible" open>
+      <summary>Planner Debug</summary>
+      <div id="debugSummary" class="card small"></div>
+      <div id="nearMisses" class="card small"></div>
+    </details>
+  </div>
+</div>
+
+<script>
+const LS_KEY = 'fuel_route_planner_v2_settings';
+
+const MASTER_SHEET_URL = 'https://docs.google.com/spreadsheets/d/15EIELOz-TxNnmq9pVYzMxJLooHT-D1oAc6u1lRKwkPU/edit?gid=338286198#gid=338286198';
+const MASTER_SHEET_GID = '338286198';
+const FUEL_DATA_LS_KEY = 'fuel_route_planner_v2_fuel_data';
+const TEMPLATE_CSV_TEXT = "pump_name,price_per_gallon,latitude,longitude,city,state\nLoves - WY310,2.5672,41.675893,-107.982457,Wamsutter,WY\nLoves - IN254,2.9781,39.615839,-86.478508,Mooresville,IN\nLoves - IN222,2.9886,39.870945,-84.933264,Richmond,IN\n";
+
+const state = {
+  map: null,
+  route: null,
+  routePoints: [],
+  routeCumulative: [],
+  routeMiles: 0,
+  fuelStops: [],
+  csvStats: { totalRows: 0, validRows: 0, invalidRows: 0, missingCoords: [] },
+  candidateStops: [],
+  selectedPlan: null,
+  debug: {},
+  markers: { origin: null, destination: null, waypoints: [], routeCandidates: [], selected: [] },
+  routeLine: null,
+  fuelData: { mode: 'default', sourceLabel: 'Master data', sourceUrl: '', loaded: false },
+  fuelViewerMap: null,
+  fuelViewerMarkers: []
+};
+
+const US_STATE_ABBR = {
+  'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA','Colorado':'CO','Connecticut':'CT','Delaware':'DE','Florida':'FL','Georgia':'GA','Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS','Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA','Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT','Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM','New York':'NY','North Carolina':'NC','North Dakota':'ND','Ohio':'OH','Oklahoma':'OK','Oregon':'OR','Pennsylvania':'PA','Rhode Island':'RI','South Carolina':'SC','South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT','Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY','District of Columbia':'DC'
+};
+const uiState = {
+  truckMenuOpen: false,
+  suggestTimers: { origin: null, destination: null, waypoints: null },
+  suggestAbort: { origin: null, destination: null, waypoints: null }
+};
+
+function $(id) { return document.getElementById(id); }
+function setStatus(html) { $('status').innerHTML = html; }
+function escapeHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+
+function closeAutocomplete(menuId) {
+  const menu = $(menuId);
+  if (!menu) return;
+  menu.innerHTML = '';
+  menu.style.display = 'none';
+}
+
+function looksLikeLatLng(text) {
+  return !!parseMaybeLatLng(text);
+}
+
+function syncTruckOrigin(truck) {
+  if (!truck) return;
+  const lat = Number(truck.latitude);
+  const lng = Number(truck.longitude);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    $('origin').value = `${lat},${lng}`;
+  }
+}
+
+function truckSelectionChanged(truck, { syncOrigin = false, syncFuel = true } = {}) {
+  if (!truck) return { startingGallons: null };
+  if (syncOrigin) syncTruckOrigin(truck);
+  const startingGallons = syncFuel ? fillStartingFuelFromTruck(truck) : null;
+  saveSettings();
+  return { startingGallons };
+}
+
+function stateCodeFromAddress(address = {}) {
+  const stateName = address.state || '';
+  const iso = address['ISO3166-2-lvl4'] || address['ISO3166-2-lvl6'] || '';
+  if (US_STATE_ABBR[stateName]) return US_STATE_ABBR[stateName];
+  if (iso.includes('-')) return iso.split('-').pop().toUpperCase();
+  return stateName;
+}
+
+function formatUsPlaceLabel(item) {
+  const address = item.address || {};
+  const city = address.city || address.town || address.village || address.municipality || address.hamlet || item.name || (item.display_name || '').split(',')[0] || '';
+  const stateCode = stateCodeFromAddress(address);
+  return [city, stateCode].filter(Boolean).join(', ');
+}
+
+async function fetchUsPlaceSuggestions(query, signal) {
+  const q = String(query || '').trim();
+  if (!q || q.length < 2 || looksLikeLatLng(q)) return [];
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=us&limit=8&q=' + encodeURIComponent(q);
+  const res = await fetch(url, { signal, headers: { 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error('Suggestion lookup failed.');
+  const data = await res.json();
+  const seen = new Set();
+  const out = [];
+  for (const item of data) {
+    const label = formatUsPlaceLabel(item);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    out.push({
+      label,
+      secondary: (item.display_name || '').split(', ').slice(2, 5).join(', '),
+      raw: item
+    });
+  }
+  return out;
+}
+
+function renderSimpleSuggestions(menuId, items, onPick) {
+  const menu = $(menuId);
+  if (!menu) return;
+  if (!items.length) {
+    closeAutocomplete(menuId);
+    return;
+  }
+  menu.innerHTML = '';
+  items.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'autocomplete-item';
+    row.innerHTML = '<div class="autocomplete-primary">' + escapeHtml(item.label || item.primary || '') + '</div>' +
+      ((item.secondary || item.meta) ? '<div class="autocomplete-secondary">' + escapeHtml(item.secondary || item.meta) + '</div>' : '');
+    row.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      onPick(item);
+    });
+    menu.appendChild(row);
+  });
+  menu.style.display = 'block';
+}
+
+function schedulePlaceSuggestions(kind) {
+  clearTimeout(uiState.suggestTimers[kind]);
+  uiState.suggestTimers[kind] = setTimeout(() => runPlaceSuggestions(kind), 220);
+}
+
+async function runPlaceSuggestions(kind) {
+  const field = $(kind === 'waypoints' ? 'waypoints' : kind);
+  const menuId = kind === 'origin' ? 'originMenu' : kind === 'destination' ? 'destinationMenu' : 'waypointsMenu';
+  let query = '';
+  if (kind === 'waypoints') {
+    const info = getCurrentWaypointLineInfo();
+    query = info.line.trim();
+  } else {
+    query = String(field?.value || '').trim();
+  }
+  if (!query || query.length < 2 || looksLikeLatLng(query)) {
+    closeAutocomplete(menuId);
+    return;
+  }
+  try {
+    if (uiState.suggestAbort[kind]) uiState.suggestAbort[kind].abort();
+    const controller = new AbortController();
+    uiState.suggestAbort[kind] = controller;
+    const items = await fetchUsPlaceSuggestions(query, controller.signal);
+    renderSimpleSuggestions(menuId, items, (item) => {
+      if (kind === 'waypoints') {
+        replaceCurrentWaypointLine(item.label);
+      } else {
+        field.value = item.label;
+        saveSettings();
+      }
+      closeAutocomplete(menuId);
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    closeAutocomplete(menuId);
+  }
+}
+
+function getCurrentWaypointLineInfo() {
+  const area = $('waypoints');
+  const text = area.value;
+  const pos = area.selectionStart || 0;
+  const start = text.lastIndexOf('\n', pos - 1) + 1;
+  let end = text.indexOf('\n', pos);
+  if (end === -1) end = text.length;
+  return { area, text, pos, start, end, line: text.slice(start, end) };
+}
+
+function replaceCurrentWaypointLine(value) {
+  const info = getCurrentWaypointLineInfo();
+  info.area.value = info.text.slice(0, info.start) + value + info.text.slice(info.end);
+  const caret = info.start + value.length;
+  info.area.selectionStart = caret;
+  info.area.selectionEnd = caret;
+  saveSettings();
+}
+
+function truckItemMeta(truck) {
+  const fuelText = cleanNumber(truck.fuelPercent) !== null ? `${cleanNumber(truck.fuelPercent)}% fuel` : 'fuel n/a';
+  const speedText = cleanNumber(truck.speedMph) !== null ? `${cleanNumber(truck.speedMph)} mph` : 'speed n/a';
+  return `${fuelText} | ${speedText} | ${truck.address || 'No address'}`;
+}
+
+function selectTruckById(id) {
+  $('truckSelect').value = id;
+  const truck = selectedSamsaraTruck();
+  if (!truck) return;
+  $('truckSearch').value = truck.name || '';
+  updateTruckInfo({ syncOrigin: true, syncFuel: true });
+  closeAutocomplete('truckSearchMenu');
+}
+
+function showTruckSuggestions() {
+  const menuId = 'truckSearchMenu';
+  const query = String($('truckSearch')?.value || '').trim();
+  if (!samsaraVehicles.length) {
+    if (query) {
+      renderSimpleSuggestions(menuId, [{ label: 'Load trucks first', secondary: 'Use the Load Trucks button to fetch Samsara vehicles.' }], () => {});
+    } else {
+      closeAutocomplete(menuId);
+    }
+    return;
+  }
+  const filtered = filteredSamsaraVehicles().slice(0, 10).map(v => ({ label: v.name || 'Unnamed truck', secondary: truckItemMeta(v), id: v.id }));
+  if (!filtered.length) {
+    renderSimpleSuggestions(menuId, [{ label: 'No matching trucks', secondary: 'Try a different truck number or name.' }], () => {});
+    return;
+  }
+  renderSimpleSuggestions(menuId, filtered, (item) => selectTruckById(item.id));
+}
+
+function saveSettings() {
+  const ids = ['origin','destination','waypoints','clickMode','planningMode','lowerOffset','upperOffset','priorityMode','targetWeight','tankCapacity','startingFuel','mpg','bufferFuel','endingFuel','maxStops','corridorMiles'];
+  const data = {};
+  ids.forEach(id => data[id] = $(id).value);
+  data.fullTankEachStop = $('fullTankEachStop').checked;
+  data.autoRescueStop = $('autoRescueStop').checked;
+  data.rescueIgnoreWindow = $('rescueIgnoreWindow').checked;
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
+}
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    Object.entries(data).forEach(([k, v]) => {
+      const el = $(k);
+      if (!el) return;
+      if (el.type === 'checkbox') el.checked = !!v;
+      else el.value = v;
+    });
+  } catch (e) { console.warn(e); }
+}
+
+function initMap() {
+  state.map = L.map('map').setView([39.5, -98.35], 4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(state.map);
+  state.map.on('click', onMapClick);
+}
+
+function onMapClick(e) {
+  const mode = $('clickMode').value;
+  if (mode === 'none') return;
+  const text = e.latlng.lat.toFixed(6) + ',' + e.latlng.lng.toFixed(6);
+  if (mode === 'origin') $('origin').value = text;
+  if (mode === 'destination') $('destination').value = text;
+  if (mode === 'waypoint') $('waypoints').value = ($('waypoints').value.trim() ? $('waypoints').value.trim() + '\n' : '') + text;
+  saveSettings();
+}
+
+function parseMaybeLatLng(text) {
+  const m = String(text || '').trim().match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (!m) return null;
+  return { lat: parseFloat(m[1]), lng: parseFloat(m[2]), label: text.trim() };
+}
+
+async function geocodeOne(text) {
+  const direct = parseMaybeLatLng(text);
+  if (direct) return direct;
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=us&limit=8&q=' + encodeURIComponent(text);
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error('Geocoding failed for ' + text);
+  const data = await res.json();
+  if (!data.length) throw new Error('No geocoding result for ' + text);
+  const best = chooseBestUsGeocodeResult(text, data) || data[0];
+  return { lat: parseFloat(best.lat), lng: parseFloat(best.lon), label: best.display_name || text };
+}
+
+function milesBetween(a, b) {
+  const R = 3958.7613;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const lat1 = a.lat * Math.PI / 180;
+  const lat2 = b.lat * Math.PI / 180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function toXYMiles(p, refLat) {
+  return { x: p.lng * Math.cos(refLat * Math.PI/180) * 69.172, y: p.lat * 69.0 };
+}
+function pointSegmentMetrics(point, a, b) {
+  const refLat = (point.lat + a.lat + b.lat) / 3;
+  const p = toXYMiles(point, refLat), p1 = toXYMiles(a, refLat), p2 = toXYMiles(b, refLat);
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const len2 = dx*dx + dy*dy;
+  let t = 0;
+  if (len2 > 0) {
+    t = ((p.x - p1.x) * dx + (p.y - p1.y) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+  }
+  const proj = { x: p1.x + t * dx, y: p1.y + t * dy };
+  return { distMiles: Math.hypot(p.x - proj.x, p.y - proj.y), t };
+}
+function computeRouteCumulative(points) {
+  const out = [0];
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += milesBetween(points[i-1], points[i]);
+    out.push(total);
+  }
+  return out;
+}
+function stopProgressOnRoute(stop, routePoints, routeCumulative) {
+  let best = { distMiles: Infinity, progressMiles: 0 };
+  for (let i = 0; i < routePoints.length - 1; i++) {
+    const seg = pointSegmentMetrics(stop, routePoints[i], routePoints[i+1]);
+    if (seg.distMiles < best.distMiles) {
+      best = { distMiles: seg.distMiles, progressMiles: routeCumulative[i] + seg.t * milesBetween(routePoints[i], routePoints[i+1]) };
+    }
+  }
+  return best;
+}
+
+function normalizeFuelStopRow(row) {
+  const map = {};
+  Object.keys(row || {}).forEach(k => map[k.trim().toLowerCase()] = row[k]);
+  const pump = map['pump_name'] || map['pump'] || map['name'] || map['column a'] || map['a'];
+  const price = parseFloat(map['price_per_gallon'] || map['price'] || map['column b'] || map['b']);
+  const lat = parseFloat(map['latitude'] || map['lat'] || map['column c'] || map['c']);
+  const lng = parseFloat(map['longitude'] || map['lon'] || map['lng'] || map['column d'] || map['d']);
+  let city = String(map['city'] || '').trim();
+  let stateName = String(map['state'] || map['st'] || '').trim();
+  const locationRaw = String(map['location'] || map['city, state'] || map['column e'] || map['e'] || '').trim();
+  if ((!city || !stateName) && locationRaw.includes(',')) {
+    const parts = locationRaw.split(',').map(s => s.trim()).filter(Boolean);
+    if (!city && parts[0]) city = parts[0];
+    if (!stateName && parts[1]) stateName = parts[1];
+  }
+  if (!pump) return { invalid: true, reason: 'missing_pump', raw: row };
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return { invalid: true, reason: 'missing_coords', raw: row, pump_name: String(pump).trim() };
+  if (Number.isNaN(price)) return { invalid: true, reason: 'missing_price', raw: row, pump_name: String(pump).trim() };
+  return {
+    pump_name: String(pump).trim(),
+    price_per_gallon: price,
+    latitude: lat,
+    longitude: lng,
+    city,
+    state: stateName,
+    location: locationRaw || [city, stateName].filter(Boolean).join(', ')
+  };
+}
+
+function clearLayerMarkers(key) {
+  for (const m of state.markers[key]) state.map.removeLayer(m);
+  state.markers[key] = [];
+}
+function makeCircleMarker(lat, lng, color, radius, html, tooltipClass) {
+  const marker = L.circleMarker([lat, lng], { radius, color, fillColor: color, fillOpacity: 0.78, weight: 2 });
+  if (html) {
+    marker.bindTooltip(html, { sticky: true, direction: 'top', opacity: 1, className: tooltipClass || 'pump-tooltip' });
+    marker.bindPopup(html);
+  }
+  marker.addTo(state.map);
+  return marker;
+}
+
+async function buildRoute() {
+  try {
+    saveSettings();
+    setStatus('Geocoding route points...');
+    const originText = $('origin').value.trim();
+    const destinationText = $('destination').value.trim();
+    const waypointLines = $('waypoints').value.split(/\n+/).map(s => s.trim()).filter(Boolean);
+    if (!originText || !destinationText) throw new Error('Origin and destination are required.');
+    const origin = await geocodeOne(originText);
+    const destination = await geocodeOne(destinationText);
+    const waypoints = [];
+    for (const wp of waypointLines) waypoints.push(await geocodeOne(wp));
+    const all = [origin, ...waypoints, destination];
+    const coordString = all.map(p => p.lng + ',' + p.lat).join(';');
+    setStatus('Fetching driving route...');
+    const res = await fetch('https://router.project-osrm.org/route/v1/driving/' + coordString + '?overview=full&geometries=geojson&steps=false');
+    const data = await res.json();
+    if (!data.routes || !data.routes.length) throw new Error('No route returned.');
+    state.routePoints = data.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+    state.routeCumulative = computeRouteCumulative(state.routePoints);
+    state.routeMiles = state.routeCumulative[state.routeCumulative.length - 1] || 0;
+    state.route = { origin, destination, waypoints };
+    if (state.routeLine) state.map.removeLayer(state.routeLine);
+    state.routeLine = L.polyline(state.routePoints.map(p => [p.lat, p.lng]), { color: '#38bdf8', weight: 5 }).addTo(state.map);
+    if (state.markers.origin) state.map.removeLayer(state.markers.origin);
+    if (state.markers.destination) state.map.removeLayer(state.markers.destination);
+    clearLayerMarkers('waypoints');
+    state.markers.origin = makeCircleMarker(origin.lat, origin.lng, '#22c55e', 8, 'Origin');
+    state.markers.destination = makeCircleMarker(destination.lat, destination.lng, '#22c55e', 8, 'Destination');
+    waypoints.forEach(w => state.markers.waypoints.push(makeCircleMarker(w.lat, w.lng, '#f59e0b', 6, 'Waypoint')));
+    state.map.fitBounds(state.routeLine.getBounds(), { padding: [40, 40] });
+    state.selectedPlan = null;
+    state.candidateStops = [];
+    state.debug = {};
+    clearLayerMarkers('routeCandidates');
+    clearLayerMarkers('selected');
+    renderResults();
+    setStatus('Route ready. Total distance: <b>' + state.routeMiles.toFixed(1) + ' miles</b>. Load fuel data if needed, then click <b>Plan</b>.');
+  } catch (err) {
+    console.error(err);
+    setStatus('<span class="bad">' + escapeHtml(err.message) + '</span>');
+  }
+}
+
+function getRules() {
+  const rules = {
+    planningMode: $('planningMode').value,
+    tankCapacity: parseFloat($('tankCapacity').value || '240'),
+    startingFuel: parseFloat($('startingFuel').value || '150'),
+    mpg: parseFloat($('mpg').value || '6.5'),
+    bufferFuel: parseFloat($('bufferFuel').value || '50'),
+    endingFuel: parseFloat($('endingFuel').value || '150'),
+    maxStops: parseInt($('maxStops').value || '2', 10),
+    corridorMiles: parseFloat($('corridorMiles').value || '10'),
+    fullTankEachStop: $('fullTankEachStop').checked,
+    lowerOffset: parseFloat($('lowerOffset').value || '10'),
+    upperOffset: parseFloat($('upperOffset').value || '5'),
+    autoRescueStop: $('autoRescueStop').checked,
+    rescueIgnoreWindow: $('rescueIgnoreWindow').checked,
+    priorityMode: $('priorityMode').value,
+    targetWeight: parseFloat($('targetWeight').value || '1')
+  };
+  if (!Number.isFinite(rules.tankCapacity) || rules.tankCapacity <= 0) throw new Error('Tank capacity must be greater than 0.');
+  if (!Number.isFinite(rules.startingFuel) || rules.startingFuel < 0) throw new Error('Starting fuel must be 0 or more.');
+  if (!Number.isFinite(rules.mpg) || rules.mpg <= 0) throw new Error('MPG must be greater than 0.');
+  if (rules.startingFuel > rules.tankCapacity) throw new Error('Starting fuel cannot exceed tank capacity.');
+  if (!Number.isFinite(rules.bufferFuel) || rules.bufferFuel < 0 || rules.bufferFuel >= rules.tankCapacity) throw new Error('Buffer fuel must be between 0 and tank capacity.');
+  if (!Number.isFinite(rules.endingFuel) || rules.endingFuel < 0 || rules.endingFuel > rules.tankCapacity) throw new Error('Ending fuel target must be between 0 and tank capacity.');
+  if (!Number.isFinite(rules.maxStops) || rules.maxStops < 0 || rules.maxStops > 4) throw new Error('Max stops must be between 0 and 4.');
+  if (!Number.isFinite(rules.corridorMiles) || rules.corridorMiles <= 0) throw new Error('Route corridor must be greater than 0.');
+  return rules;
+}
+
+function refillWindow(rules) {
+  return { minFuel: Math.max(0, rules.bufferFuel - rules.lowerOffset), maxFuel: Math.min(rules.tankCapacity, rules.bufferFuel + rules.upperOffset) };
+}
+function endingToleranceGallons(rules) { return Math.max(10, Math.min(20, rules.tankCapacity * 0.08)); }
+function idealFinalLegMiles(rules) { return Math.max(0, (rules.tankCapacity - rules.endingFuel) * rules.mpg); }
+function feasibleArrivalFuel(startFuel, legMiles, mpg) { return startFuel - (legMiles / mpg); }
+function routingWindowSlackGallons(rules) { return Math.max(0, Math.min(3, rules.mpg * 0.4)); }
+function fuelIsAllowedStop(fuel, rules, slack = 0, rescueIgnore = false) {
+  if (rescueIgnore) return fuel >= 0;
+  if (rules.planningMode === 'buffer') return fuel >= (rules.bufferFuel - slack);
+  const w = activeWindowForMode(rules);
+  return fuel >= (w.minFuel - slack) && fuel <= (w.maxFuel + slack);
+}
+function corridorLevels(base) {
+  return [...new Set([base, Math.max(base, 15), Math.max(base, 25), Math.max(base, 40), Math.max(base, 80)].map(v => Math.round(v * 10) / 10))].sort((a,b)=>a-b);
+}
+function pumpNumberFromName(name) {
+  const m = String(name || '').match(/(\d+)\s*$/);
+  return m ? m[1] : String(name || 'n/a');
+}
+function formatLocation(stop) { return stop.location || [stop.city, stop.state].filter(Boolean).join(', ') || 'n/a'; }
+
+
+function parseStateCode(text) {
+  const m = String(text || '').trim().match(/,\s*([A-Za-z]{2})\s*$/);
+  return m ? m[1].toUpperCase() : '';
+}
+function cityNameFromAddress(address = {}) {
+  return String(address.city || address.town || address.village || address.municipality || address.hamlet || '').trim();
+}
+function chooseBestUsGeocodeResult(query, results) {
+  if (!Array.isArray(results) || !results.length) return null;
+  const desiredState = parseStateCode(query);
+  const desiredCity = String(query || '').split(',')[0].trim().toLowerCase();
+  const enriched = results.map((item) => {
+    const address = item.address || {};
+    return {
+      item,
+      stateCode: stateCodeFromAddress(address).toUpperCase(),
+      city: cityNameFromAddress(address).toLowerCase(),
+    };
+  });
+
+  if (desiredState) {
+    const exactStateAndCity = enriched.find((entry) => entry.stateCode === desiredState && entry.city === desiredCity);
+    if (exactStateAndCity) return exactStateAndCity.item;
+    const stateOnly = enriched.find((entry) => entry.stateCode === desiredState);
+    if (stateOnly) return stateOnly.item;
+  }
+
+  if (desiredCity) {
+    const cityOnly = enriched.find((entry) => entry.city === desiredCity);
+    if (cityOnly) return cityOnly.item;
+  }
+
+  return enriched[0].item;
+}
+function destinationStateCode() { return state.route?.destination?.state || parseStateCode($('destination').value); }
+function beforeCaWindow() { return { minFuel: 35, maxFuel: 55 }; }
+function activeWindowForMode(rules) {
+  return rules.planningMode === 'before_ca' ? beforeCaWindow() : refillWindow(rules);
+}
+function beforeCaCandidates(candidates) {
+  return candidates.filter(s => String(s.state || '').toUpperCase() !== 'CA');
+}
+
+function computeCandidatesForCorridor(corridorMiles) {
+  const candidates = [];
+  let rejectedByCorridor = 0;
+  for (const s of state.fuelStops) {
+    const metrics = stopProgressOnRoute({ lat: s.latitude, lng: s.longitude }, state.routePoints, state.routeCumulative);
+    if (metrics.distMiles <= corridorMiles) candidates.push({ ...s, ...metrics });
+    else rejectedByCorridor += 1;
+  }
+  candidates.sort((a,b)=>a.progressMiles - b.progressMiles);
+  return { candidates, rejectedByCorridor };
+}
+
+function simulatePlan(candidateSeq, rules, options = {}) {
+  const slack = options.windowSlack || 0;
+  const rescueLastIgnore = !!options.rescueLastIgnore;
+  let currentFuel = rules.startingFuel;
+  let lastProgress = 0;
+  let totalGallons = 0;
+  let totalCost = 0;
+  const stops = [];
+  for (let idx = 0; idx < candidateSeq.length; idx++) {
+    const stop = candidateSeq[idx];
+    const legMiles = stop.progressMiles - lastProgress;
+    const fuelOnArrival = feasibleArrivalFuel(currentFuel, legMiles, rules.mpg);
+    if (fuelOnArrival < 0) return invalidPlan('reachability', 'Truck cannot physically reach ' + stop.pump_name + ' from previous state.', candidateSeq, rules, stops, fuelOnArrival);
+    const isLast = idx === candidateSeq.length - 1;
+    const ignoreWindow = rescueLastIgnore && isLast;
+    if (!fuelIsAllowedStop(fuelOnArrival, rules, slack, ignoreWindow)) {
+      const w = activeWindowForMode(rules);
+      const reason = (rules.planningMode === 'strict' || rules.planningMode === 'before_ca') && !ignoreWindow
+        ? 'Arrival fuel ' + fuelOnArrival.toFixed(2) + ' gal is outside ' + (rules.planningMode === 'before_ca' ? 'Before Entering CA' : 'strict') + ' window ' + (w.minFuel - slack).toFixed(1) + ' to ' + (w.maxFuel + slack).toFixed(1) + '.'
+        : 'Arrival fuel ' + fuelOnArrival.toFixed(2) + ' gal is below the plain buffer threshold.';
+      return invalidPlan('refill_window', reason, candidateSeq, rules, stops, fuelOnArrival);
+    }
+    let desiredDepartFuel;
+    if (rules.fullTankEachStop) {
+      desiredDepartFuel = rules.tankCapacity;
+    } else {
+      const nextProgress = isLast ? state.routeMiles : candidateSeq[idx + 1].progressMiles;
+      const nextNeed = Math.max(0, (nextProgress - stop.progressMiles) / rules.mpg);
+      const reserve = isLast ? rules.endingFuel : ((rules.planningMode === 'strict' || rules.planningMode === 'before_ca') ? activeWindowForMode(rules).maxFuel : rules.bufferFuel);
+      desiredDepartFuel = Math.min(rules.tankCapacity, nextNeed + reserve);
+    }
+    if (desiredDepartFuel < fuelOnArrival) desiredDepartFuel = fuelOnArrival;
+    const gallonsFilled = Math.max(0, desiredDepartFuel - fuelOnArrival);
+    const cost = gallonsFilled * stop.price_per_gallon;
+    totalGallons += gallonsFilled;
+    totalCost += cost;
+    const fuelAfterStop = desiredDepartFuel;
+    stops.push({ ...stop, fuelOnArrival, gallonsFilled, fuelAfterStop, cost, legMiles, remainingMilesToDestination: state.routeMiles - stop.progressMiles, rescueStop: ignoreWindow });
+    currentFuel = fuelAfterStop;
+    lastProgress = stop.progressMiles;
+  }
+  if (rules.planningMode === 'before_ca') {
+    const stopArrivalFuel = stops.length ? stops[stops.length - 1].fuelOnArrival : currentFuel;
+    return {
+      valid: stops.length === 1,
+      stops,
+      arrivalFuel: stopArrivalFuel,
+      endingDiff: 0,
+      totalGallons,
+      totalCost,
+      autoAddedThirdStop: false,
+      rescueLastIgnore,
+      failReason: null,
+      failMessage: ''
+    };
+  }
+  const finalLeg = state.routeMiles - lastProgress;
+  const arrivalFuel = feasibleArrivalFuel(currentFuel, finalLeg, rules.mpg);
+  if (arrivalFuel < 0) return invalidPlan('reachability', 'Truck cannot reach destination after final stop.', candidateSeq, rules, stops, arrivalFuel);
+  const endingDiff = Math.abs(arrivalFuel - rules.endingFuel);
+  const valid = endingDiff <= endingToleranceGallons(rules);
+  return {
+    valid,
+    stops,
+    arrivalFuel,
+    endingDiff,
+    totalGallons,
+    totalCost,
+    autoAddedThirdStop: options.autoAddedThirdStop || false,
+    rescueLastIgnore,
+    failReason: valid ? null : 'ending_target',
+    failMessage: valid ? '' : 'Destination arrival fuel ' + arrivalFuel.toFixed(2) + ' gal misses target ' + rules.endingFuel.toFixed(1) + ' by ' + endingDiff.toFixed(2) + ' gal.'
+  };
+}
+
+function invalidPlan(code, message, seq, rules, stops, arrivalFuel) {
+  return { valid: false, stops: stops || [], arrivalFuel: Number.isFinite(arrivalFuel) ? arrivalFuel : -9999, endingDiff: Infinity, totalGallons: stops.reduce((a,s)=>a+s.gallonsFilled,0), totalCost: stops.reduce((a,s)=>a+s.cost,0), failReason: code, failMessage: message };
+}
+
+function scorePlan(plan, rules) {
+  const lastStop = plan.stops.length ? plan.stops[plan.stops.length - 1] : null;
+  const finalStopPenalty = lastStop ? Math.abs(lastStop.remainingMilesToDestination - idealFinalLegMiles(rules)) : Math.abs(state.routeMiles - idealFinalLegMiles(rules));
+  const stopCountPenalty = plan.stops.length * 5;
+  if (rules.planningMode === 'before_ca') {
+    const caEntryPreference = lastStop ? (state.routeMiles - lastStop.progressMiles) : state.routeMiles;
+    const arrivalWindow = beforeCaWindow();
+    const windowMid = (arrivalWindow.minFuel + arrivalWindow.maxFuel) / 2;
+    const windowPenalty = lastStop ? Math.abs(lastStop.fuelOnArrival - windowMid) : 9999;
+    if (rules.priorityMode === 'lowest_cost') {
+      return plan.totalCost + caEntryPreference * 0.03 + windowPenalty * 0.5 + stopCountPenalty;
+    }
+    if (rules.priorityMode === 'best_ending') {
+      return plan.totalCost * 0.6 + caEntryPreference * 0.08 + windowPenalty * 8 + stopCountPenalty;
+    }
+    return plan.totalCost + caEntryPreference * 0.05 + windowPenalty * 2 + stopCountPenalty;
+  }
+  if (rules.priorityMode === 'lowest_cost') {
+    return plan.totalCost + plan.endingDiff * 25 + finalStopPenalty * 0.02 + stopCountPenalty;
+  }
+  if (rules.priorityMode === 'best_ending') {
+    return plan.endingDiff * 1000 + finalStopPenalty * 0.15 + plan.totalCost * 0.03 + stopCountPenalty;
+  }
+  return plan.endingDiff * (80 * rules.targetWeight) + finalStopPenalty * 0.05 + plan.totalCost * 0.08 + stopCountPenalty;
+}
+
+function enumerateCombinations(items, choose, start = 0, prefix = [], out = []) {
+  if (prefix.length === choose) { out.push(prefix.slice()); return out; }
+  for (let i = start; i <= items.length - (choose - prefix.length); i++) {
+    prefix.push(items[i]);
+    enumerateCombinations(items, choose, i + 1, prefix, out);
+    prefix.pop();
+  }
+  return out;
+}
+
+
+function choosePlan() {
+  const rules = getRules();
+  const debug = {
+    csvRowsLoaded: state.csvStats.totalRows,
+    validCsvRows: state.csvStats.validRows,
+    missingCoordsRows: state.csvStats.missingCoords.length,
+    rejectedByCorridor: 0,
+    routeSidePumpsFound: 0,
+    rejectedByWindow: 0,
+    rejectedByReachability: 0,
+    rejectedByEnding: 0,
+    candidatePlansTested: 0,
+    effectiveCorridorUsed: null,
+    windowSlackUsed: 0,
+    notes: [],
+    nearMisses: []
+  };
+  let bestValid = null;
+  let bestInvalid = null;
+  const slacks = (rules.planningMode === 'strict' || rules.planningMode === 'before_ca') ? [0, routingWindowSlackGallons(rules)] : [0];
+
+  if (rules.planningMode === 'before_ca') {
+    const destState = destinationStateCode();
+    if (destState !== 'CA') {
+      throw new Error('Before Entering CA Mode is meant for California destinations only, because it specifically looks for a cheap route-side stop before the truck enters California.');
+    }
+    debug.notes.push('Before Entering CA Mode: looking for exactly 1 cheap non-California route-side stop with arrival fuel between 35 and 55 gal. Please fill fuel before entering California as fuel prices in CA are killing us.');
+  }
+
+  for (const corridor of corridorLevels(rules.corridorMiles)) {
+    const cdata = computeCandidatesForCorridor(corridor);
+    debug.rejectedByCorridor += cdata.rejectedByCorridor;
+    if (!cdata.candidates.length) continue;
+    debug.routeSidePumpsFound = Math.max(debug.routeSidePumpsFound, cdata.candidates.length);
+    state.candidateStops = cdata.candidates;
+
+    const planningCandidates = rules.planningMode === 'before_ca' ? beforeCaCandidates(cdata.candidates) : cdata.candidates;
+    if (rules.planningMode === 'before_ca') {
+      debug.notes.push('Pre-California route-side candidates at corridor ' + corridor.toFixed(1) + ' mi: ' + planningCandidates.length + '.');
+      if (!planningCandidates.length) continue;
+    }
+
+    for (const slack of slacks) {
+      if (rules.planningMode === 'before_ca') {
+        const combos = enumerateCombinations(planningCandidates, 1);
+        for (const combo of combos) {
+          debug.candidatePlansTested += 1;
+          const plan = simulatePlan(combo, rules, { windowSlack: slack });
+          trackPlanResult(plan, debug, rules);
+          if (plan.valid) {
+            plan.score = scorePlan(plan, rules);
+            plan.effectiveCorridorMiles = corridor;
+            plan.windowSlackGallons = slack;
+            if (!bestValid || plan.score < bestValid.score) bestValid = plan;
+          } else {
+            plan.score = scorePlan({ ...plan, endingDiff: Number.isFinite(plan.endingDiff) ? plan.endingDiff : 9999, totalCost: plan.totalCost || 0, stops: plan.stops || [] }, rules) + 100000;
+            if (!bestInvalid || plan.score < bestInvalid.score) bestInvalid = plan;
+          }
+        }
+      } else {
+        for (let stopCount = 0; stopCount <= rules.maxStops; stopCount++) {
+          const combos = stopCount === 0 ? [[]] : enumerateCombinations(planningCandidates, stopCount);
+          for (const combo of combos) {
+            debug.candidatePlansTested += 1;
+            const plan = simulatePlan(combo, rules, { windowSlack: slack });
+            trackPlanResult(plan, debug, rules);
+            if (plan.valid) {
+              plan.score = scorePlan(plan, rules);
+              plan.effectiveCorridorMiles = corridor;
+              plan.windowSlackGallons = slack;
+              if (!bestValid || plan.score < bestValid.score) bestValid = plan;
+            } else {
+              plan.score = scorePlan({ ...plan, endingDiff: Number.isFinite(plan.endingDiff) ? plan.endingDiff : 9999, totalCost: plan.totalCost || 0, stops: plan.stops || [] }, rules) + 100000;
+              if (!bestInvalid || plan.score < bestInvalid.score) bestInvalid = plan;
+            }
+          }
+        }
+        if (!bestValid && rules.autoRescueStop && rules.maxStops <= 3) {
+          const rescueCount = Math.min(rules.maxStops + 1, 4);
+          const rescueCombos = rescueCount === 0 ? [[]] : enumerateCombinations(planningCandidates, rescueCount);
+          for (const combo of rescueCombos) {
+            debug.candidatePlansTested += 1;
+            const plan = simulatePlan(combo, rules, { windowSlack: slack, rescueLastIgnore: rules.rescueIgnoreWindow, autoAddedThirdStop: rescueCount > rules.maxStops });
+            trackPlanResult(plan, debug, rules, true);
+            if (plan.valid) {
+              plan.score = scorePlan(plan, rules);
+              plan.effectiveCorridorMiles = corridor;
+              plan.windowSlackGallons = slack;
+              if (!bestValid || plan.score < bestValid.score) bestValid = plan;
+            } else {
+              plan.score = scorePlan({ ...plan, endingDiff: Number.isFinite(plan.endingDiff) ? plan.endingDiff : 9999, totalCost: plan.totalCost || 0, stops: plan.stops || [] }, rules) + 100000;
+              if (!bestInvalid || plan.score < bestInvalid.score) bestInvalid = plan;
+            }
+          }
+        }
+      }
+
+      if (bestValid) {
+        debug.effectiveCorridorUsed = corridor;
+        debug.windowSlackUsed = slack;
+        debug.notes.push('Planner found a valid plan at corridor ' + corridor.toFixed(1) + ' mi with slack ±' + slack.toFixed(1) + ' gal.');
+        state.debug = { ...debug, bestInvalid };
+        return bestValid;
+      }
+    }
+  }
+
+  state.debug = { ...debug, bestInvalid };
+  if (bestInvalid) {
+    bestInvalid.nearMiss = true;
+    return bestInvalid;
+  }
+  throw new Error(rules.planningMode === 'before_ca'
+    ? 'No cheap pre-California route-side stop could satisfy Before Entering CA Mode. Try a wider corridor, different route, or plain buffer mode.'
+    : 'No route-side pump plan could even produce a near-miss. That usually means the CSV coverage is terrible, the route never got built properly, or the rules are acting like tyrants.');
+}
+
+function trackPlanResult(plan, debug, rules, rescue = false) {
+  if (plan.valid) return;
+  if (plan.failReason === 'refill_window') debug.rejectedByWindow += 1;
+  else if (plan.failReason === 'reachability') debug.rejectedByReachability += 1;
+  else if (plan.failReason === 'ending_target') debug.rejectedByEnding += 1;
+  const preview = {
+    stops: (plan.stops || []).map(s => s.pump_name).join(' -> ') || 'No stop plan',
+    reason: plan.failReason,
+    message: plan.failMessage,
+    arrivalFuel: Number.isFinite(plan.arrivalFuel) ? plan.arrivalFuel.toFixed(2) : 'n/a',
+    rescue
+  };
+  debug.nearMisses.push(preview);
+  debug.nearMisses.sort((a,b) => {
+    const av = Math.abs(parseFloat(a.arrivalFuel) - rules.endingFuel || 9999);
+    const bv = Math.abs(parseFloat(b.arrivalFuel) - rules.endingFuel || 9999);
+    return av - bv;
+  });
+  debug.nearMisses = debug.nearMisses.slice(0, 5);
+}
+
+function candidateFuelOnPlan(candidate, plan, rules) {
+  let currentFuel = rules.startingFuel;
+  let lastProgress = 0;
+  for (const stop of plan.stops) {
+    if (candidate.progressMiles <= stop.progressMiles) {
+      return feasibleArrivalFuel(currentFuel, candidate.progressMiles - lastProgress, rules.mpg);
+    }
+    currentFuel = stop.fuelAfterStop;
+    lastProgress = stop.progressMiles;
+  }
+  return feasibleArrivalFuel(currentFuel, candidate.progressMiles - lastProgress, rules.mpg);
+}
+
+function candidateTooltipHtml(stop, plan, rules) {
+  const fuelLeft = candidateFuelOnPlan(stop, plan, rules);
+  return '<div class="tt-line"><b>Pump Number:</b> ' + escapeHtml(pumpNumberFromName(stop.pump_name)) + '</div>' +
+         '<div class="tt-line"><b>Location:</b> ' + escapeHtml(formatLocation(stop)) + '</div>' +
+         '<div class="tt-line"><b>Price:</b> $' + stop.price_per_gallon.toFixed(4) + '</div>' +
+         '<div class="tt-line"><b>Gallons left reaching there:</b> ' + fuelLeft.toFixed(2) + ' gal</div>' +
+         '<div class="tt-line"><b>Distance from route:</b> ' + stop.distMiles.toFixed(2) + ' mi</div>';
+}
+function selectedStopTooltipHtml(stop) {
+  return '<div class="tt-title">Recommended Stop</div>' +
+         '<div class="tt-line"><b>Pump Number:</b> ' + escapeHtml(pumpNumberFromName(stop.pump_name)) + '</div>' +
+         '<div class="tt-line"><b>Location:</b> ' + escapeHtml(formatLocation(stop)) + '</div>' +
+         '<div class="tt-line"><b>Gallons left reaching there:</b> ' + stop.fuelOnArrival.toFixed(2) + ' gal</div>' +
+         '<div class="tt-line"><b>Tank:</b> ' + stop.fuelOnArrival.toFixed(1) + ' gal -> fill ' + stop.gallonsFilled.toFixed(1) + ' gal -> ' + stop.fuelAfterStop.toFixed(1) + ' gal</div>' +
+         '<div class="tt-line"><b>Cost:</b> ' + stop.gallonsFilled.toFixed(1) + ' gal x $' + stop.price_per_gallon.toFixed(4) + ' = $' + stop.cost.toFixed(2) + '</div>';
+}
+
+function renderResults() {
+  clearLayerMarkers('routeCandidates');
+  clearLayerMarkers('selected');
+  const summary = $('summary');
+  const reason = $('planReason');
+  const planTable = $('planTable');
+  const debugSummary = $('debugSummary');
+  const nearMisses = $('nearMisses');
+  if (!state.route) {
+    summary.innerHTML = 'No route yet.';
+    reason.innerHTML = 'Build a route first.';
+    planTable.innerHTML = '';
+    debugSummary.innerHTML = 'Nothing to debug yet.';
+    nearMisses.innerHTML = '';
+    return;
+  }
+  const rules = safeGetRules();
+  if (!state.selectedPlan) {
+    summary.innerHTML = '<div class="metric"><span>Route miles</span><span class="value">' + state.routeMiles.toFixed(1) + '</span></div>' +
+      '<div class="metric"><span>Fuel rows loaded</span><span class="value">' + state.csvStats.validRows + '</span></div>' +
+      '<div class="metric"><span>Status</span><span class="value warn-text">Build route, upload CSV, then plan</span></div>';
+    reason.innerHTML = 'No selected plan yet.';
+    planTable.innerHTML = '';
+    debugSummary.innerHTML = 'Planner debug will show counts after you run the plan.';
+    nearMisses.innerHTML = '';
+    return;
+  }
+  const plan = state.selectedPlan;
+  const tolerance = rules ? endingToleranceGallons(rules) : 0;
+  summary.innerHTML =
+    '<div class="metric"><span>Route miles</span><span class="value">' + state.routeMiles.toFixed(1) + '</span></div>' +
+    '<div class="metric"><span>Plan status</span><span class="value ' + (plan.valid ? 'good' : 'warn-text') + '">' + (plan.valid ? 'Valid' : 'Near Miss / Invalid') + '</span></div>' +
+    '<div class="metric"><span>Stops chosen</span><span class="value">' + plan.stops.length + '</span></div>' +
+    '<div class="metric"><span>Total gallons added</span><span class="value">' + plan.totalGallons.toFixed(2) + '</span></div>' +
+    '<div class="metric"><span>Total cost</span><span class="value">$' + plan.totalCost.toFixed(2) + '</span></div>' +
+    '<div class="metric"><span>' + (rules && rules.planningMode === 'before_ca' ? 'Fuel on stop arrival' : 'Arrival fuel') + '</span><span class="value ' + (plan.valid ? 'good' : 'warn-text') + '">' + plan.arrivalFuel.toFixed(2) + ' gal</span></div>' +
+    (rules && rules.planningMode === 'before_ca'
+      ? '<div class="metric"><span>CA warning</span><span class="value warn-text">Fill before CA</span></div>'
+      : '<div class="metric"><span>Ending target tolerance</span><span class="value">±' + tolerance.toFixed(1) + ' gal</span></div>') +
+    '<div class="metric"><span>Effective corridor</span><span class="value">' + ((plan.effectiveCorridorMiles || rules.corridorMiles).toFixed(1)) + ' mi</span></div>' +
+    (plan.windowSlackGallons ? '<div class="metric"><span>Window slack used</span><span class="value warn-text">±' + plan.windowSlackGallons.toFixed(1) + ' gal</span></div>' : '') +
+    (plan.autoAddedThirdStop ? '<div class="metric"><span>Rescue behavior</span><span class="value warn-text">Auto extra stop used</span></div>' : '');
+
+  if (plan.valid) {
+    reason.innerHTML = rules.planningMode === 'before_ca'
+      ? 'This plan won because it found the cheapest route-side stop before California in the fixed 35 to 55 gallon arrival window. <b>Please fill fuel before entering California as fuel prices in CA are killing us.</b>'
+      : 'This plan won because it satisfied the rule stack and then ranked best under <b>' + escapeHtml(rules.priorityMode.replace('_',' ')) + '</b>. It stayed route-side, met the fuel legality checks for the selected mode, and landed near the ending-fuel target without inventing nonsense.';
+  } else {
+    reason.innerHTML = '<span class="warn-text">Best near miss only.</span> ' + escapeHtml(plan.failMessage || 'It failed one or more rules.') + ' The debug panel below shows what got rejected and why.';
+  }
+
+  let html = '<table><thead><tr><th>Stop #</th><th>Pump</th><th>City, State</th><th>Trip Mile</th><th>Fuel on Arrival</th><th>Gallons Filled</th><th>Price</th><th>Stop Cost</th><th>Fuel After Stop</th></tr></thead><tbody>';
+  if (!plan.stops.length) {
+    html += '<tr><td colspan="9" class="small">Direct run. No stops selected.</td></tr>';
+  } else {
+    plan.stops.forEach((s, idx) => {
+      html += '<tr>' +
+        '<td>' + (idx + 1) + (s.rescueStop ? '<div class="small warn-text">rescue</div>' : '') + '</td>' +
+        '<td>' + escapeHtml(s.pump_name) + '</td>' +
+        '<td>' + escapeHtml(formatLocation(s)) + '</td>' +
+        '<td class="nowrap">' + s.progressMiles.toFixed(1) + '</td>' +
+        '<td class="nowrap">' + s.fuelOnArrival.toFixed(2) + '</td>' +
+        '<td class="nowrap">' + s.gallonsFilled.toFixed(2) + '</td>' +
+        '<td class="nowrap">$' + s.price_per_gallon.toFixed(4) + '</td>' +
+        '<td class="nowrap">$' + s.cost.toFixed(2) + '</td>' +
+        '<td class="nowrap">' + s.fuelAfterStop.toFixed(2) + '</td>' +
+      '</tr>';
+    });
+  }
+  html += '</tbody></table>';
+  planTable.innerHTML = html;
+
+  const d = state.debug || {};
+  debugSummary.innerHTML =
+    '<div class="metric"><span>CSV rows loaded</span><span class="value">' + (d.csvRowsLoaded ?? 0) + '</span></div>' +
+    '<div class="metric"><span>Valid rows</span><span class="value">' + (d.validCsvRows ?? 0) + '</span></div>' +
+    '<div class="metric"><span>Missing coords rows</span><span class="value">' + (d.missingCoordsRows ?? 0) + '</span></div>' +
+    '<div class="metric"><span>Route-side pumps found</span><span class="value">' + (d.routeSidePumpsFound ?? 0) + '</span></div>' +
+    '<div class="metric"><span>Rejected by corridor</span><span class="value">' + (d.rejectedByCorridor ?? 0) + '</span></div>' +
+    '<div class="metric"><span>Rejected by refill/window rule</span><span class="value">' + (d.rejectedByWindow ?? 0) + '</span></div>' +
+    '<div class="metric"><span>Rejected by reachability</span><span class="value">' + (d.rejectedByReachability ?? 0) + '</span></div>' +
+    '<div class="metric"><span>Rejected by ending-fuel rule</span><span class="value">' + (d.rejectedByEnding ?? 0) + '</span></div>' +
+    '<div class="metric"><span>Candidate plans tested</span><span class="value">' + (d.candidatePlansTested ?? 0) + '</span></div>' +
+    '<div class="metric"><span>Effective corridor used</span><span class="value">' + ((d.effectiveCorridorUsed ?? (rules?.corridorMiles || 0)).toFixed ? (d.effectiveCorridorUsed ?? (rules?.corridorMiles || 0)).toFixed(1) : (d.effectiveCorridorUsed ?? 'n/a')) + '</span></div>' +
+    '<div class="small" style="margin-top:8px;">' + (d.notes || []).map(n => '<div>• ' + escapeHtml(n) + '</div>').join('') + '</div>';
+
+  const nm = (d.nearMisses || []);
+  nearMisses.innerHTML = '<div class="small" style="margin-bottom:8px; font-weight:700; color: var(--accent);">Top near misses</div>' +
+    (nm.length ? '<div class="debug-list">' + nm.map(item =>
+      '<div class="metric"><span><div><b>' + escapeHtml(item.stops) + '</b></div><div class="small">' + escapeHtml(item.message) + '</div></span><span class="value">' + escapeHtml(item.arrivalFuel) + ' gal</span></div>'
+    ).join('') + '</div>' : '<div class="small">No near misses captured yet.</div>');
+
+  state.candidateStops.forEach(stop => {
+    state.markers.routeCandidates.push(makeCircleMarker(stop.latitude, stop.longitude, '#10b981', 4, candidateTooltipHtml(stop, plan, rules), 'pump-tooltip'));
+  });
+  plan.stops.forEach(stop => {
+    const m = makeCircleMarker(stop.latitude, stop.longitude, '#2563eb', 8, selectedStopTooltipHtml(stop), 'recommend-tooltip');
+    m.setStyle({ fillColor: '#60a5fa', color: '#1d4ed8', weight: 3, fillOpacity: 0.9 });
+    m.bringToFront();
+    state.markers.selected.push(m);
+  });
+}
+
+function safeGetRules() {
+  try { return getRules(); } catch (_) { return null; }
+}
+
+
+function loadFuelPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(FUEL_DATA_LS_KEY) || '{}');
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveFuelPrefs(nextPatch) {
+  const next = { ...loadFuelPrefs(), ...nextPatch };
+  localStorage.setItem(FUEL_DATA_LS_KEY, JSON.stringify(next));
+  return next;
+}
+
+function parseGoogleSheetInfo(url, fallbackGid = '0') {
+  const raw = String(url || '').trim();
+  const match = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (!match) throw new Error('Invalid Google Sheet URL. Paste the normal Google Sheets link.');
+  const spreadsheetId = match[1];
+  const gidMatch = raw.match(/[?#&]gid=([0-9]+)/);
+  const gid = gidMatch ? gidMatch[1] : String(fallbackGid || '0');
+  const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv${gid ? `&gid=${gid}` : ''}`;
+  return { spreadsheetId, gid, csvUrl };
+}
+
+function updateFuelModeUi() {
+  const mode = $('fuelDataMode').value;
+  $('customSheetRow').style.display = mode === 'google_sheet' ? 'block' : 'none';
+  $('csvUploadRow').style.display = mode === 'csv' ? 'block' : 'none';
+  saveFuelPrefs({ mode });
+}
+
+function setFuelDataInfo(html) {
+  $('fuelDataInfo').innerHTML = html;
+}
+
+function resetSelectedPlanForFuelChange() {
+  state.selectedPlan = null;
+  state.candidateStops = [];
+  state.debug = {};
+  clearLayerMarkers('routeCandidates');
+  clearLayerMarkers('selected');
+  renderResults();
+}
+
+function applyFuelRows(rows, stats, meta = {}) {
+  state.csvStats = stats;
+  state.fuelStops = rows;
+  state.fuelData = {
+    mode: meta.mode || $('fuelDataMode').value || 'default',
+    sourceLabel: meta.label || 'Fuel data',
+    sourceUrl: meta.sourceUrl || '',
+    loaded: true
+  };
+  resetSelectedPlanForFuelChange();
+  renderFuelViewer();
+}
+
+function normalizeParsedRows(parsedRows) {
+  const stats = { totalRows: parsedRows.length, validRows: 0, invalidRows: 0, missingCoords: [] };
+  const rows = [];
+  parsedRows.forEach((row) => {
+    const norm = normalizeFuelStopRow(row);
+    if (norm && !norm.invalid) {
+      rows.push(norm);
+      stats.validRows += 1;
+    } else {
+      stats.invalidRows += 1;
+      if (norm && norm.reason === 'missing_coords') stats.missingCoords.push(norm.pump_name || 'unknown');
+    }
+  });
+  if (!rows.length) {
+    throw new Error('No valid fuel rows were found. Check the template columns and make sure latitude, longitude, and price are numeric.');
+  }
+  return { rows, stats };
+}
+
+function parseFuelCsvText(csvText, meta = {}) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      complete(results) {
+        try {
+          const normalized = normalizeParsedRows(results.data || []);
+          applyFuelRows(normalized.rows, normalized.stats, meta);
+          resolve(normalized);
+        } catch (err) {
+          reject(err);
+        }
+      },
+      error(err) {
+        reject(err);
+      }
+    });
+  });
+}
+
+async function loadGoogleSheetData(sheetUrl, meta = {}) {
+  const info = parseGoogleSheetInfo(sheetUrl, meta.fallbackGid || '0');
+  const res = await fetch(info.csvUrl, { cache: 'no-store' });
+  if (!res.ok) {
+    throw new Error('Could not load data from this Google Sheet. Check that it is shared as Anyone with the link -> Viewer and that the URL points to the correct tab.');
+  }
+  const csvText = await res.text();
+  const label = meta.label || 'Google Sheet';
+  const normalized = await parseFuelCsvText(csvText, {
+    mode: meta.mode || 'google_sheet',
+    label,
+    sourceUrl: sheetUrl
+  });
+  setFuelDataInfo(`Loaded <b>${normalized.stats.validRows}</b> fuel pumps from <b>${escapeHtml(label)}</b>.`);
+  return normalized;
+}
+
+async function loadFuelDataForSelectedMode() {
+  const mode = $('fuelDataMode').value;
+  updateFuelModeUi();
+
+  if (mode === 'default') {
+    saveFuelPrefs({ mode: 'default' });
+    await loadGoogleSheetData(MASTER_SHEET_URL, {
+      mode: 'default',
+      label: 'Master fuel data',
+      fallbackGid: MASTER_SHEET_GID
+    });
+    return;
+  }
+
+  if (mode === 'google_sheet') {
+    const url = $('customSheetUrl').value.trim();
+    if (!url) throw new Error('Paste your Google Sheet URL first.');
+    saveFuelPrefs({ mode: 'google_sheet', customSheetUrl: url });
+    await loadGoogleSheetData(url, {
+      mode: 'google_sheet',
+      label: 'Custom Google Sheet',
+      fallbackGid: '0'
+    });
+    return;
+  }
+
+  if (mode === 'csv') {
+    const prefs = loadFuelPrefs();
+    if (!prefs.csvText) {
+      throw new Error('Upload a CSV first. CSV mode remembers the file on the same browser after refresh.');
+    }
+    const normalized = await parseFuelCsvText(prefs.csvText, {
+      mode: 'csv',
+      label: prefs.csvName ? `CSV: ${prefs.csvName}` : 'Uploaded CSV'
+    });
+    setFuelDataInfo(`Loaded <b>${normalized.stats.validRows}</b> fuel pumps from <b>${escapeHtml(prefs.csvName || 'uploaded CSV')}</b>. This stays on the same browser after refresh.`);
+    return;
+  }
+
+  throw new Error('Unknown fuel data mode.');
+}
+
+async function applyDefaultFuelSource() {
+  $('fuelDataMode').value = 'default';
+  $('customSheetUrl').value = '';
+  localStorage.removeItem(FUEL_DATA_LS_KEY);
+  saveFuelPrefs({ mode: 'default' });
+  updateFuelModeUi();
+  await loadFuelDataForSelectedMode();
+}
+
+async function restoreFuelDataOnStartup() {
+  const prefs = loadFuelPrefs();
+  const mode = ['default', 'google_sheet', 'csv'].includes(prefs.mode) ? prefs.mode : 'default';
+  $('fuelDataMode').value = mode;
+  $('customSheetUrl').value = prefs.customSheetUrl || '';
+  updateFuelModeUi();
+
+  try {
+    if (mode === 'google_sheet' && prefs.customSheetUrl) {
+      await loadFuelDataForSelectedMode();
+      return;
+    }
+    if (mode === 'csv' && prefs.csvText) {
+      await loadFuelDataForSelectedMode();
+      return;
+    }
+    $('fuelDataMode').value = 'default';
+    updateFuelModeUi();
+    await loadFuelDataForSelectedMode();
+  } catch (err) {
+    console.error(err);
+    setFuelDataInfo('<span class="bad">' + escapeHtml(err.message) + '</span>');
+    $('fuelDataMode').value = 'default';
+    updateFuelModeUi();
+    await loadFuelDataForSelectedMode();
+  }
+}
+
+async function handleCsvUpload(file) {
+  if (!file) return;
+  try {
+    const csvText = await file.text();
+    $('fuelDataMode').value = 'csv';
+    updateFuelModeUi();
+    saveFuelPrefs({ mode: 'csv', csvText, csvName: file.name });
+    const normalized = await parseFuelCsvText(csvText, {
+      mode: 'csv',
+      label: `CSV: ${file.name}`
+    });
+    setFuelDataInfo(`Loaded <b>${normalized.stats.validRows}</b> fuel pumps from <b>${escapeHtml(file.name)}</b>. This CSV will stay after refresh on the same browser only.`);
+    setStatus('CSV loaded. Valid stops: <b>' + normalized.stats.validRows + '</b>. Missing coords rows: <b>' + normalized.stats.missingCoords.length + '</b>.');
+  } catch (err) {
+    console.error(err);
+    setStatus('<span class="bad">CSV parse failed: ' + escapeHtml(err.message) + '</span>');
+  }
+}
+
+function downloadTemplateCsv() {
+  const blob = new Blob([TEMPLATE_CSV_TEXT], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'Fuel_Stops_Template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function ensureFuelViewerMap() {
+  if (!state.fuelViewerMap) {
+    state.fuelViewerMap = L.map('fuelViewerMap').setView([39.5, -98.35], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(state.fuelViewerMap);
+  }
+  return state.fuelViewerMap;
+}
+
+function clearFuelViewerMarkers() {
+  if (!state.fuelViewerMap) return;
+  state.fuelViewerMarkers.forEach((m) => state.fuelViewerMap.removeLayer(m));
+  state.fuelViewerMarkers = [];
+}
+
+function fuelViewerTooltip(stop) {
+  return '<div class="tt-line"><b>Pump:</b> ' + escapeHtml(stop.pump_name) + '</div>' +
+    '<div class="tt-line"><b>Location:</b> ' + escapeHtml(formatLocation(stop)) + '</div>' +
+    '<div class="tt-line"><b>Price:</b> $' + stop.price_per_gallon.toFixed(4) + '</div>';
+}
+
+function renderFuelViewer() {
+  $('fuelViewerSource').textContent = state.fuelData?.sourceLabel || 'n/a';
+  $('fuelViewerSummary').innerHTML = state.fuelStops.length
+    ? `Showing <b>${state.fuelStops.length}</b> fuel pumps from <b>${escapeHtml(state.fuelData?.sourceLabel || 'Fuel data')}</b>.`
+    : 'No fuel data loaded.';
+  const tbody = $('fuelViewerTableBody');
+  const empty = $('fuelViewerEmpty');
+  tbody.innerHTML = '';
+  if (!state.fuelStops.length) {
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const rows = state.fuelStops.slice().sort((a, b) => {
+    const stateA = String(a.state || '');
+    const stateB = String(b.state || '');
+    if (stateA !== stateB) return stateA.localeCompare(stateB);
+    const cityA = String(a.city || '');
+    const cityB = String(b.city || '');
+    if (cityA !== cityB) return cityA.localeCompare(cityB);
+    return a.price_per_gallon - b.price_per_gallon;
+  });
+
+  rows.forEach((stop) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(stop.pump_name)}</td><td>${escapeHtml(formatLocation(stop))}</td><td>$${stop.price_per_gallon.toFixed(4)}</td>`;
+    tr.addEventListener('mouseenter', () => {
+      if (state.fuelViewerMap) state.fuelViewerMap.flyTo([stop.latitude, stop.longitude], Math.max(state.fuelViewerMap.getZoom(), 6), { duration: 0.5 });
+    });
+    tbody.appendChild(tr);
+  });
+
+  const map = ensureFuelViewerMap();
+  clearFuelViewerMarkers();
+  const bounds = [];
+  state.fuelStops.forEach((stop) => {
+    const marker = L.circleMarker([stop.latitude, stop.longitude], {
+      radius: 5,
+      color: '#ef4444',
+      fillColor: '#60a5fa',
+      fillOpacity: 0.82,
+      weight: 2
+    }).bindTooltip(fuelViewerTooltip(stop), {
+      sticky: true,
+      direction: 'top',
+      opacity: 1,
+      className: 'pump-tooltip'
+    }).addTo(map);
+    state.fuelViewerMarkers.push(marker);
+    bounds.push([stop.latitude, stop.longitude]);
+  });
+
+  setTimeout(() => {
+    map.invalidateSize();
+    if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
+    else map.setView([39.5, -98.35], 4);
+  }, 30);
+}
+
+function openFuelViewer() {
+  $('fuelViewerModal').style.display = 'flex';
+  renderFuelViewer();
+}
+
+function closeFuelViewer() {
+  $('fuelViewerModal').style.display = 'none';
+}
+
+function planRouteStops() {
+  try {
+    if (!state.route) throw new Error('Build a route first.');
+    if (!state.fuelStops.length) throw new Error('Load fuel data first.');
+    saveSettings();
+    setStatus('Planning fuel stops...');
+    state.selectedPlan = choosePlan();
+    renderResults();
+    const rules = getRules();
+    if (state.selectedPlan.valid) {
+      setStatus('Plan ready. <b>' + state.selectedPlan.stops.length + '</b> stop(s), total cost <b>$' + state.selectedPlan.totalCost.toFixed(2) + '</b>, arrival fuel <b>' + state.selectedPlan.arrivalFuel.toFixed(2) + ' gal</b>.');
+    } else {
+      setStatus('<span class="warn-text">No fully valid plan.</span> Showing best near miss so you can see what failed instead of pretending the planner knows nothing.');
+    }
+  } catch (err) {
+    console.error(err);
+    setStatus('<span class="bad">' + escapeHtml(err.message) + '</span>');
+    state.selectedPlan = null;
+    renderResults();
+  }
+}
+
+function downloadJson() {
+  if (!state.selectedPlan || !state.route) { setStatus('<span class="warn-text">Plan first, then export.</span>'); return; }
+  const payload = { route: state.route, routeMiles: state.routeMiles, rules: safeGetRules(), selectedPlan: state.selectedPlan, debug: state.debug, generatedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'fuel_route_plan.json'; a.click(); URL.revokeObjectURL(url);
+}
+function downloadCsv() {
+  if (!state.selectedPlan) { setStatus('<span class="warn-text">Plan first, then export.</span>'); return; }
+  const rows = [['stop_number','pump_name','location','trip_mile','fuel_on_arrival','gallons_filled','price_per_gallon','stop_cost','fuel_after_stop','remaining_miles_to_destination','rescue_stop']];
+  state.selectedPlan.stops.forEach((s, idx) => rows.push([idx+1, s.pump_name, formatLocation(s), s.progressMiles.toFixed(1), s.fuelOnArrival.toFixed(2), s.gallonsFilled.toFixed(2), s.price_per_gallon.toFixed(4), s.cost.toFixed(2), s.fuelAfterStop.toFixed(2), s.remainingMilesToDestination.toFixed(1), s.rescueStop ? 'yes' : 'no']));
+  rows.push([]);
+  rows.push(['arrival_fuel', state.selectedPlan.arrivalFuel.toFixed(2)]);
+  rows.push(['total_gallons', state.selectedPlan.totalGallons.toFixed(2)]);
+  rows.push(['total_cost', state.selectedPlan.totalCost.toFixed(2)]);
+  const csv = rows.map(r => r.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'fuel_route_plan.csv'; a.click(); URL.revokeObjectURL(url);
+}
+
+function clearWaypoints() { $('waypoints').value = ''; saveSettings(); }
+
+
+let samsaraVehicles = [];
+
+function cleanNumber(value) {
+  if (value === null || value === undefined) return null;
+  const n = Number(String(value).replace('%', '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+async function fetchSamsaraVehicles() {
+  const res = await fetch('https://fco-backend-five.vercel.app/api/samsara/vehicles');
+  const data = await res.json();
+
+  if (!data.success) throw new Error(data.error || 'Failed to load Samsara trucks.');
+
+  return (data.vehicles || [])
+    .filter(v => Number.isFinite(Number(v.latitude)) && Number.isFinite(Number(v.longitude)))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+function normalizeTruckSearchText(value) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function filteredSamsaraVehicles() {
+  const searchBox = $('truckSearch');
+  const rawQuery = String(searchBox?.value || '').trim().toLowerCase();
+  const compactQuery = normalizeTruckSearchText(rawQuery);
+
+  if (!rawQuery && !compactQuery) return samsaraVehicles;
+
+  return samsaraVehicles.filter(v => {
+    const name = String(v.name || '').toLowerCase();
+    const compactName = normalizeTruckSearchText(v.name || '');
+    return name.includes(rawQuery) || compactName.includes(compactQuery);
+  });
+}
+
+function renderTruckDropdown(previousSelectedId = '') {
+  const select = $('truckSelect');
+  select.innerHTML = '';
+
+  const filteredVehicles = filteredSamsaraVehicles();
+  const headerOpt = document.createElement('option');
+  headerOpt.value = '';
+
+  if (!samsaraVehicles.length) {
+    headerOpt.textContent = 'Load trucks first';
+    select.appendChild(headerOpt);
+    return 0;
+  }
+
+  if (!filteredVehicles.length) {
+    headerOpt.textContent = 'No trucks match your search';
+    select.appendChild(headerOpt);
+    return 0;
+  }
+
+  headerOpt.textContent = `Select a truck (${filteredVehicles.length}/${samsaraVehicles.length} shown)`;
+  select.appendChild(headerOpt);
+
+  filteredVehicles.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v.id;
+
+    const fuelText = cleanNumber(v.fuelPercent) !== null ? `${cleanNumber(v.fuelPercent)}% fuel` : 'fuel n/a';
+    const speedText = cleanNumber(v.speedMph) !== null ? `${cleanNumber(v.speedMph)} mph` : 'speed n/a';
+    opt.textContent = `${v.name} | ${fuelText} | ${speedText} | ${v.address || 'No address'}`;
+
+    select.appendChild(opt);
+  });
+
+  if (previousSelectedId && filteredVehicles.some(v => String(v.id) === String(previousSelectedId))) {
+    select.value = previousSelectedId;
+  }
+
+  return filteredVehicles.length;
+}
+
+async function loadSamsaraTrucks() {
+  try {
+    setStatus('Loading Samsara trucks...');
+
+    const previousSelectedId = $('truckSelect')?.value || '';
+    samsaraVehicles = await fetchSamsaraVehicles();
+    const shownCount = renderTruckDropdown(previousSelectedId);
+
+    const selected = selectedSamsaraTruck();
+    if (selected) updateTruckInfo({ syncOrigin: true, syncFuel: true });
+    else $('truckInfo').innerHTML = `Loaded <b>${samsaraVehicles.length}</b> trucks with GPS location. Showing <b>${shownCount}</b>.`;
+
+    showTruckSuggestions();
+    setStatus('Samsara trucks loaded. Start typing in <b>Truck Search / Select</b> and choose the correct truck from the same dropdown.');
+  } catch (err) {
+    console.error(err);
+    setStatus('<span class="bad">' + escapeHtml(err.message) + '</span>');
+  }
+}
+
+function applyTruckSearch() {
+  const previousSelectedId = $('truckSelect')?.value || '';
+  const shownCount = renderTruckDropdown(previousSelectedId);
+  showTruckSuggestions();
+
+  if (!samsaraVehicles.length) {
+    $('truckInfo').innerHTML = 'No truck loaded.';
+    return;
+  }
+
+  const query = String($('truckSearch')?.value || '').trim();
+  const selected = selectedSamsaraTruck();
+  if (selected && normalizeTruckSearchText(selected.name || '') === normalizeTruckSearchText(query)) {
+    updateTruckInfo();
+    return;
+  }
+
+  $('truckInfo').innerHTML = query
+    ? `Search <b>${escapeHtml(query)}</b>: showing <b>${shownCount}</b> of <b>${samsaraVehicles.length}</b> trucks.`
+    : `Showing <b>${shownCount}</b> of <b>${samsaraVehicles.length}</b> trucks.`;
+}
+
+function selectOnlyTruckFromSearch(event) {
+  if (event.key === 'Escape') {
+    closeAutocomplete('truckSearchMenu');
+    return;
+  }
+  if (event.key !== 'Enter') return;
+
+  const filteredVehicles = filteredSamsaraVehicles();
+  if (!filteredVehicles.length) return;
+
+  selectTruckById(filteredVehicles[0].id);
+}
+
+function selectedSamsaraTruck() {
+  return samsaraVehicles.find(v => String(v.id) === String($('truckSelect').value)) || null;
+}
+
+function fuelPercentToGallons(fuelPercent) {
+  const percent = cleanNumber(fuelPercent);
+  const tankCapacity = cleanNumber($('tankCapacity').value || '240');
+
+  if (percent === null || percent < 0) return null;
+  if (tankCapacity === null || tankCapacity <= 0) return null;
+
+  return (percent / 100) * tankCapacity;
+}
+
+function fillStartingFuelFromTruck(truck) {
+  const gallons = fuelPercentToGallons(truck?.fuelPercent);
+
+  if (gallons === null) {
+    return null;
+  }
+
+  const startingFuelInput = $('startingFuel');
+  startingFuelInput.value = gallons.toFixed(1);
+  startingFuelInput.setAttribute('data-samsara-fuel-percent', String(truck.fuelPercent));
+  startingFuelInput.setAttribute('data-samsara-truck-id', String(truck.id));
+
+  saveSettings();
+  return gallons;
+}
+
+function updateTruckInfo(options = {}) {
+  const truck = selectedSamsaraTruck();
+  if (!truck) {
+    $('truckInfo').innerHTML = 'No truck selected.';
+    return;
+  }
+
+  const { syncOrigin = false, syncFuel = true } = options;
+  const { startingGallons } = truckSelectionChanged(truck, { syncOrigin, syncFuel });
+  const fuelPercent = cleanNumber(truck.fuelPercent);
+  const tankCapacity = cleanNumber($('tankCapacity').value || '240');
+
+  const fuelText = fuelPercent !== null
+    ? `${fuelPercent}%${startingGallons !== null ? ` = ${startingGallons.toFixed(1)} gal from ${tankCapacity} gal tank` : ''}`
+    : 'n/a';
+
+  $('truckSearch').value = truck.name || '';
+
+  $('truckInfo').innerHTML =
+    `<b>${escapeHtml(truck.name)}</b><br>` +
+    `Location: ${escapeHtml(truck.address || 'n/a')}<br>` +
+    `Speed: ${truck.speedMph ?? 0} mph<br>` +
+    `Fuel: ${fuelText}<br>` +
+    `<b>Starting Fuel box:</b> ${startingGallons !== null ? startingGallons.toFixed(1) + ' gal' : 'not changed'}<br>` +
+    (syncOrigin ? `<b>Origin box:</b> truck GPS location applied<br>` : '') +
+    `Odometer: ${truck.odometerMiles ? truck.odometerMiles.toFixed(1) : 'n/a'} mi`;
+}
+
+function useTruckAsOrigin() {
+  const truck = selectedSamsaraTruck();
+  if (!truck) {
+    setStatus('<span class="warn-text">Select a truck first.</span>');
+    return;
+  }
+
+  $('origin').value = `${truck.latitude},${truck.longitude}`;
+  const startingGallons = fillStartingFuelFromTruck(truck);
+  updateTruckInfo();
+  saveSettings();
+
+  setStatus(
+    `Origin set from <b>${escapeHtml(truck.name)}</b>.` +
+    (startingGallons !== null
+      ? ` Starting Fuel set to <b>${startingGallons.toFixed(1)} gal</b>.`
+      : ` Fuel percent was not available, so Starting Fuel was not changed.`)
+  );
+}
+
+async function refreshTruckLocation() {
+  try {
+    const selectedId = $('truckSelect').value;
+    if (!selectedId) {
+      setStatus('<span class="warn-text">Select a truck first.</span>');
+      return;
+    }
+
+    setStatus('Refreshing selected truck location and fuel...');
+    samsaraVehicles = await fetchSamsaraVehicles();
+    renderTruckDropdown(selectedId);
+
+    const truck = selectedSamsaraTruck();
+    if (!truck) {
+      setStatus('<span class="bad">Selected truck was not found after refresh.</span>');
+      return;
+    }
+
+    const { startingGallons } = truckSelectionChanged(truck, { syncOrigin: true, syncFuel: true });
+    updateTruckInfo({ syncOrigin: false, syncFuel: false });
+    saveSettings();
+
+    setStatus(
+      `Refreshed <b>${escapeHtml(truck.name)}</b>. Origin updated.` +
+      (startingGallons !== null
+        ? ` Starting Fuel set to <b>${startingGallons.toFixed(1)} gal</b>.`
+        : ` Fuel percent was not available, so Starting Fuel was not changed.`)
+    );
+  } catch (err) {
+    console.error(err);
+    setStatus('<span class="bad">' + escapeHtml(err.message) + '</span>');
+  }
+}
+
+function bindEvents() {
+  ['origin','destination','waypoints','clickMode','planningMode','lowerOffset','upperOffset','priorityMode','targetWeight','tankCapacity','startingFuel','mpg','bufferFuel','endingFuel','maxStops','corridorMiles'].forEach(id => $(id).addEventListener('change', saveSettings));
+  ['fullTankEachStop','autoRescueStop','rescueIgnoreWindow'].forEach(id => $(id).addEventListener('change', saveSettings));
+  $('buildRouteBtn').addEventListener('click', buildRoute);
+  $('clearWaypointsBtn').addEventListener('click', clearWaypoints);
+  $('csvFile').addEventListener('change', e => handleCsvUpload(e.target.files[0]));
+  $('fuelDataMode').addEventListener('change', updateFuelModeUi);
+  $('customSheetUrl').addEventListener('change', () => saveFuelPrefs({ customSheetUrl: $('customSheetUrl').value.trim() }));
+  $('loadFuelDataBtn').addEventListener('click', async () => {
+    try {
+      setStatus('Loading fuel data...');
+      await loadFuelDataForSelectedMode();
+      setStatus('Fuel data loaded. Ready to plan.');
+    } catch (err) {
+      console.error(err);
+      setStatus('<span class="bad">' + escapeHtml(err.message) + '</span>');
+      setFuelDataInfo('<span class="bad">' + escapeHtml(err.message) + '</span>');
+    }
+  });
+  $('useDefaultFuelBtn').addEventListener('click', async () => {
+    try {
+      setStatus('Switching back to master fuel data...');
+      await applyDefaultFuelSource();
+      setStatus('Back on master fuel data.');
+    } catch (err) {
+      console.error(err);
+      setStatus('<span class="bad">' + escapeHtml(err.message) + '</span>');
+    }
+  });
+  $('viewFuelPumpsBtn').addEventListener('click', openFuelViewer);
+  document.addEventListener('click', (event) => {
+    if (event.target && event.target.id === 'closeFuelViewerBtn') {
+      closeFuelViewer();
+      return;
+    }
+    const modal = $('fuelViewerModal');
+    if (modal && event.target === modal) {
+      closeFuelViewer();
+    }
+  });
+  $('downloadTemplateBtn').addEventListener('click', downloadTemplateCsv);
+  $('planBtn').addEventListener('click', planRouteStops);
+  $('downloadJsonBtn').addEventListener('click', downloadJson);
+  $('downloadCsvBtn').addEventListener('click', downloadCsv);
+  $('loadTrucksBtn').addEventListener('click', loadSamsaraTrucks);
+  $('refreshTruckBtn').addEventListener('click', refreshTruckLocation);
+  $('truckSearch').addEventListener('input', applyTruckSearch);
+  $('truckSearch').addEventListener('focus', showTruckSuggestions);
+  $('truckSearch').addEventListener('blur', () => setTimeout(() => closeAutocomplete('truckSearchMenu'), 180));
+  $('truckSearch').addEventListener('keydown', selectOnlyTruckFromSearch);
+  $('truckSelect').addEventListener('change', () => updateTruckInfo({ syncOrigin: true, syncFuel: true }));
+  $('tankCapacity').addEventListener('change', () => updateTruckInfo({ syncOrigin: false, syncFuel: true }));
+
+  ['origin','destination'].forEach((id) => {
+    $(id).addEventListener('input', () => schedulePlaceSuggestions(id));
+    $(id).addEventListener('focus', () => schedulePlaceSuggestions(id));
+    $(id).addEventListener('blur', () => setTimeout(() => closeAutocomplete(id === 'origin' ? 'originMenu' : 'destinationMenu'), 180));
+  });
+
+  $('waypoints').addEventListener('input', () => schedulePlaceSuggestions('waypoints'));
+  $('waypoints').addEventListener('focus', () => schedulePlaceSuggestions('waypoints'));
+  $('waypoints').addEventListener('click', () => schedulePlaceSuggestions('waypoints'));
+  $('waypoints').addEventListener('keyup', () => schedulePlaceSuggestions('waypoints'));
+  $('waypoints').addEventListener('blur', () => setTimeout(() => closeAutocomplete('waypointsMenu'), 180));
+}
+
+loadSettings();
+initMap();
+
+function bindPlanShortcutButtons() {
+  const triggerPlan = () => {
+    const mainPlanBtn = $('planBtn');
+    if (mainPlanBtn) mainPlanBtn.click();
+  };
+
+  $('planFabMap')?.addEventListener('click', triggerPlan);
+  $('planStickyTop')?.addEventListener('click', triggerPlan);
+}
+
+function positionPlanShortcutButtons() {
+  const mapBtn = $('planFabMap');
+  const mapEl = $('map');
+  const resultsWrap = document.querySelector('.panel.right');
+  const resultsSticky = document.querySelector('.plan-results-sticky');
+
+  if (mapBtn && mapEl) {
+    const rect = mapEl.getBoundingClientRect();
+    const btnSize = mapBtn.offsetWidth || 128;
+    const rightInset = 28;
+    const bottomInset = 18;
+    const left = rect.right - btnSize - rightInset;
+    const top = rect.bottom - btnSize - bottomInset;
+
+    mapBtn.style.left = `${Math.max(12, left)}px`;
+    mapBtn.style.top = `${Math.max(12, top)}px`;
+    mapBtn.style.visibility = rect.width > 120 && rect.height > 120 ? 'visible' : 'hidden';
+  }
+
+  if (resultsWrap && resultsSticky) {
+    const rect = resultsWrap.getBoundingClientRect();
+    resultsSticky.style.left = `${rect.left + 16}px`;
+    resultsSticky.style.top = '10px';
+    resultsSticky.style.width = `${Math.max(220, rect.width - 32)}px`;
+    resultsSticky.style.visibility = rect.width > 180 ? 'visible' : 'hidden';
+  }
+}
+
+bindEvents();
+bindPlanShortcutButtons();
+renderResults();
+restoreFuelDataOnStartup();
+loadSamsaraTrucks();
+
+positionPlanShortcutButtons();
+window.addEventListener('load', positionPlanShortcutButtons);
+window.addEventListener('resize', positionPlanShortcutButtons);
+window.addEventListener('scroll', positionPlanShortcutButtons, { passive: true });
+document.querySelector('.panel')?.addEventListener('scroll', positionPlanShortcutButtons, { passive: true });
+document.querySelector('.panel.right')?.addEventListener('scroll', positionPlanShortcutButtons, { passive: true });
+setTimeout(positionPlanShortcutButtons, 150);
+setTimeout(positionPlanShortcutButtons, 700);
+</script>
+
+<div id="fuelViewerModal" class="viewer-modal">
+  <div class="viewer-card">
+    <div class="viewer-head">
+      <div>
+        <h1 style="margin:0;">Fuel Pump Viewer</h1>
+        <div id="fuelViewerSummary" class="small">No fuel data loaded.</div>
+      </div>
+      <button id="closeFuelViewerBtn" class="secondary" style="width:auto; min-width:120px;">Close</button>
+    </div>
+    <div class="viewer-sub">
+      Current source: <span id="fuelViewerSource">n/a</span>
+    </div>
+    <div class="viewer-grid">
+      <div class="viewer-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Pump</th>
+              <th>City, State</th>
+              <th>Price</th>
+            </tr>
+          </thead>
+          <tbody id="fuelViewerTableBody"></tbody>
+        </table>
+        <div id="fuelViewerEmpty" class="viewer-empty" style="display:none;">No fuel data loaded yet.</div>
+      </div>
+      <div id="fuelViewerMap"></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
